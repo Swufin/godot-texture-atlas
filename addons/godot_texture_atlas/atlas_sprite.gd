@@ -1,6 +1,6 @@
 @icon("res://addons/godot_texture_atlas/icon_atlas_sprite.svg")
 @tool
-## Plays Adobe Animate sprite atlases in Godot.
+## A node that displays a 2D texture atlas.
 class_name AtlasSprite
 extends Node2D
 
@@ -211,11 +211,32 @@ func _create_animation_player() -> void:
 		push_error("Must have an AnimationPlayer as a child!")
 		return
 	
-	for anim_info in animations:
-		if anim_info.symbol_name == "":
+	if animations.size() == 0:
+		push_warning("No AtlasAnimInfo resources assigned.")
+		return
+	
+	var lib: AnimationLibrary
+	if not anim_player.has_animation_library("AtlasSymbols"):
+		lib = AnimationLibrary.new()
+		anim_player.add_animation_library("AtlasSymbols", lib)
+	else:
+		lib = anim_player.get_animation_library("AtlasSymbols")
+	
+	# Store current state so we can restore it
+	var saved_anim = animation
+	var saved_frame = frame
+	var saved_json = _loaded_json
+	
+	for i in range(animations.size()):
+		var anim_info = animations[i]
+		if anim_info.animation_json == null:
 			continue
 		
-		var layers = symbols.get(anim_info.symbol_name, symbols["_top"])
+		# Load this animation's atlas data
+		animation = i
+		_load_current_animation(true)
+		
+		var layers = symbols["_top"]
 		var total_frames = get_timeline_length(layers)
 		if total_frames <= 0:
 			continue
@@ -224,26 +245,27 @@ func _create_animation_player() -> void:
 		anim.length = float(total_frames) / fps
 		anim.loop_mode = anim_info.loop_mode
 		
-		# Track animation index
+		# Track which animation slot to use
 		var track_anim_index = anim.add_track(Animation.TYPE_VALUE)
 		anim.track_set_path(track_anim_index, ".:animation")
 		anim.value_track_set_update_mode(track_anim_index, Animation.UPDATE_DISCRETE)
-		anim.track_insert_key(track_anim_index, 0.0, animations.find(anim_info))
+		anim.track_insert_key(track_anim_index, 0.0, i)
 		
-		# Track frame
+		# Track frame progression
 		var track_frame = anim.add_track(Animation.TYPE_VALUE)
 		anim.track_set_path(track_frame, ".:frame")
 		anim.track_insert_key(track_frame, 0, 0)
 		anim.track_insert_key(track_frame, anim.length, total_frames)
 		
-		# Animation name
-		var anim_name = anim_info.symbol_name.replace("/", "_").replace(" ", "_")
-		
-		var lib: AnimationLibrary
-		if not anim_player.has_animation_library("AtlasSymbols"):
-			lib = AnimationLibrary.new()
-			anim_player.add_animation_library("AtlasSymbols", lib)
-		else:
-			lib = anim_player.get_animation_library("AtlasSymbols")
-		
+		var anim_name = str(i) + "_" + anim_info.animation_json.resource_path.get_file().get_basename()
+
+		if lib.has_animation(anim_name):
+			lib.remove_animation(anim_name)
+
 		lib.add_animation(anim_name, anim)
+
+	# Restore previous atlas
+	animation = saved_anim
+	frame = saved_frame
+	_loaded_json = saved_json
+	_load_current_animation(false)
